@@ -1,0 +1,27 @@
+{
+  "id": "/sedra-cashier-v5/",
+  "name": "كاشير سدرة V5",
+  "short_name": "كاشير سدرة",
+  "description": "كاشير سدرة V5 مستقل عن جرد سدرة والكاشير السابق؛ تشغيل محلي مع نقل نسخة احتياطية بين الأجهزة.",
+  "lang": "ar",
+  "dir": "rtl",
+  "start_url": "/sedra-cashier-v5/",
+  "scope": "/sedra-cashier-v5/",
+  "display": "standalone",
+  "background_color": "#0b100e",
+  "theme_color": "#101714",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}
