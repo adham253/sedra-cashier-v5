@@ -44,7 +44,7 @@ function switchPage(page){currentPage=page;$$('.page').forEach(e=>e.classList.to
 $$('.nav').forEach(b=>b.onclick=()=>switchPage(b.dataset.page));
 function displayStock(p){if(!p.stockInitialized)return 'غير مثبت';const q=Number(p.stockQty||0),shown=isWeight(p)?fmt(q/1000)+' كجم':fmt(q)+' '+p.unit;return (p.stockStatus==='unverified'?'غير مجرود · ':'')+shown;}
 function displayQty(p,qty){return isWeight(p)?`${fmt(qty/1000)} كجم`:`${fmt(qty)} ${p.unit}`}
-const lineC=(p,qty,entry=null)=>{const rate=Number.isInteger(entry?.overridePriceC)?entry.overridePriceC:p.priceC;return entry?.mode==='money'&&Number.isInteger(entry.amountC)?entry.amountC:(isWeight(p)?Math.round(rate*qty/1000):rate*qty)};
+const lineC=(p,qty,entry=null)=>{const rate=Number.isInteger(entry?.overridePriceC)?entry.overridePriceC:(entry?.saleTier==='bulk'&&Number.isInteger(p.bulkPriceC)&&p.bulkPriceC>0?p.bulkPriceC:p.priceC);return entry?.mode==='money'&&Number.isInteger(entry.amountC)?entry.amountC:(isWeight(p)?Math.round(rate*qty/1000):rate*qty)};
 const cartTotal=()=>[...cart.values()].reduce((s,x)=>s+lineC(x.p,x.qty,x),0);
 function cartValid(){return cart.size>0&&[...cart.values()].every(x=>!x.invalid&&Number.isFinite(x.qty)&&x.qty>0&&(!isWeight(x.p)?Number.isInteger(x.qty):true)&&Number.isInteger(x.p.priceC)&&x.p.priceC>0&&Number.isInteger(lineC(x.p,x.qty,x))&&lineC(x.p,x.qty,x)>0)}
 async function productSearch(q,limit=80){const v=norm(q);return (await all('products')).filter(x=>x.active!==false&&(!v||norm(x.name).includes(v)||norm(x.id).includes(v)||norm(x.code).includes(v)||norm(x.barcode).includes(v))).sort((a,b)=>a.name.localeCompare(b.name,'ar')).slice(0,limit)}

@@ -1,7 +1,7 @@
 "use strict";
 // CACHE REVISION MUST CHANGE with each deployment. Never touch another app's caches.
-const CACHE="sedra-pos-v5-20261110_1",PREFIX="sedra-pos-v5-";
-const PRECACHE=["./","./index.html","./styles.20261110_1.css","./app.20261110_1.js","./v5-upgrade.20261110_1.js","./pwa-updater.20261110_1.js","./xlsx-mini.js","./seed-products.js","./icon-192.png","./icon-512.png","./manifest.webmanifest","./version.json"];
+const CACHE="sedra-pos-v5-20261111_2",PREFIX="sedra-pos-v5-";
+const PRECACHE=["./","./index.html","./styles.20261111_2.css","./app.20261111_2.js","./v5-upgrade.20261111_2.js","./v5.2.20261111_2.js","./pwa-updater.20261111_2.js","./xlsx-mini.js","./seed-products.js","./icon-192.png","./icon-512.png","./manifest.webmanifest","./version.json"];
 const BASE=new URL(self.registration.scope);
 function ours(url){const u=new URL(url);return u.origin===BASE.origin&&u.pathname.startsWith(BASE.pathname)}
 self.addEventListener('install',event=>{
