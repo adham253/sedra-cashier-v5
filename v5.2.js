@@ -1,6 +1,6 @@
 'use strict';
 /* Sedra V5.2: non-destructive, offline-safe feature upgrade. No user data is embedded here. */
-const V52_BUILD='2026.11.11.3';
+const V52_BUILD='2026.11.11.4';
 const V52_MIN_BULK_G=125;
 const v52GrossLine=it=>Number.isFinite(it?.totalC)?it.totalC:0;
 const v52KnownCost=it=>it&&it.costMissing!==true&&it.costEstimated!==true&&Number.isFinite(it.costTotalC)&&(it.costMissing===false||it.costTotalC>0);

@@ -21,3 +21,14 @@
 #quickAddSell{font-size:25px;font-weight:700}
 #invoiceList .card-meta{line-height:1.7}
 @media(max-width:380px){.v52-shortcuts{grid-template-columns:repeat(2,1fr)}.v52-tier .chip{width:100%}}
+
+/* V5.2.2 six-tab layout, receiving details and cost alerts */
+.bottom{grid-template-columns:repeat(6,minmax(0,1fr));padding-left:2px;padding-right:2px}
+.nav{font-size:10px;padding:7px 0;min-width:0}.nav span{font-size:19px}
+#purchases .mini-actions{display:flex;flex-wrap:wrap;gap:7px}#purchases .mini-actions .field{flex:1 1 185px;width:auto;min-width:0}
+#products .searchbar{align-items:flex-start}#products #productSearch{flex:1;min-width:0}
+#products #showUnknownCost{white-space:normal}
+.sedra-incoming-table{width:100%;border-collapse:collapse;font-size:12px;text-align:right}.sedra-incoming-table th,.sedra-incoming-table td{padding:9px 6px;border-bottom:1px solid #39513d;vertical-align:middle}.sedra-incoming-table th{background:#203c2a;color:#dcf4df}
+.sedra-table-scroll{overflow-x:auto;max-width:100%}.sedra-table-scroll table{min-width:550px}
+.sedra-invoice-meta{display:grid;grid-template-columns:1fr 1fr;gap:7px;margin:10px 0}
+.sedra-invoice-meta .stat{margin:0}.sedra-small-note{font-size:12px;color:#c0d8c5}
