@@ -1,6 +1,6 @@
 'use strict';
 /* Sedra V5.2: non-destructive, offline-safe feature upgrade. No user data is embedded here. */
-const V52_BUILD='2026.11.11.2';
+const V52_BUILD='2026.11.11.3';
 const V52_MIN_BULK_G=125;
 const v52GrossLine=it=>Number.isFinite(it?.totalC)?it.totalC:0;
 const v52KnownCost=it=>it&&it.costMissing!==true&&it.costEstimated!==true&&Number.isFinite(it.costTotalC)&&(it.costMissing===false||it.costTotalC>0);
@@ -319,15 +319,133 @@ summaryRender=async function(){
   $('#expenseLog').innerHTML=s.expenses.length?`<p class="hint">مصروفات مسجلة: ${money(-s.expenses.reduce((n,x)=>n+x.amountC,0))}</p>`+s.expenses.slice().sort((a,b)=>b.createdAt.localeCompare(a.createdAt)).slice(0,5).map(x=>`<div class="list-card split"><span>${esc(x.reference)}</span><b>${money(-x.amountC)}</b></div>`).join(''):'<div class="hint">لا توجد مصروفات مسجلة.</div>';
 };
 
-/* Credit invoice PDF uses browser's Save as PDF/Print; PNG is generated offline in a canvas. */
-function v52CreditHtml(inv,items){
-  const rows=items.map(it=>`<tr><td>${esc(it.productName)}</td><td>${esc(displayQty({kind:it.kind,unit:it.unit},it.qtyBase))}</td><td>${money(it.totalC||0)}</td></tr>`).join('');
-  return `<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>${esc(inv.number)} · سدرة</title><style>body{margin:0;padding:28px;font-family:Tahoma,Arial,sans-serif;color:#1f3026;background:#fff;max-width:800px;margin:auto}h1{text-align:center;color:#12683a}p{text-align:center}table{border-collapse:collapse;width:100%;margin:22px 0}td,th{padding:12px;border-bottom:1px solid #ddd;text-align:right}th{background:#eaf4ed}section{display:flex;justify-content:space-between;gap:16px;margin:10px 0;padding:9px;border-bottom:1px solid #e0e9e3}strong{color:#124e2b}.hint{font-size:12px;color:#666}.toolbar{padding:12px;background:#eaf4ed;text-align:center;margin-bottom:18px}.toolbar button{padding:12px 20px;background:#166a3b;border:0;color:white;font-weight:700;border-radius:8px}@media print{@page{size:A4;margin:16mm}.toolbar{display:none}body{padding:0}}</style></head><body><div class="toolbar">اضغط «طباعة / حفظ PDF»، ثم اختر «حفظ كملف PDF» من قائمة الطابعات <button onclick="window.print()">طباعة / حفظ PDF</button></div><h1>سدرة</h1><p>فاتورة مبيعات آجل</p><section><span>رقم الفاتورة</span><strong>${esc(inv.number)}</strong></section><section><span>التاريخ</span><b>${esc(dateShow(inv.createdAt))}</b></section><section><span>العميل</span><b>${esc(inv.customerName||'غير محدد')}</b></section><table><thead><tr><th>الصنف</th><th>الكمية</th><th>القيمة</th></tr></thead><tbody>${rows}</tbody></table><section><span>الإجمالي قبل خصم الفاتورة</span><b>${money(inv.grossC??inv.totalC)}</b></section><section><span>خصم الفاتورة</span><b>${money(inv.discountC||0)}</b></section><section><strong>الإجمالي المطلوب</strong><strong>${money(inv.totalC)}</strong></section><section><span>المدفوع وقت البيع</span><b>${money(inv.cashC||0)}</b></section><section><strong>الآجل عند إصدار الفاتورة</strong><strong>${money(inv.creditC||0)}</strong></section><p class="hint">المدفوعات اللاحقة تخص حساب العميل العام، ولا يتم خصمها من الفاتورة التاريخية تلقائيًا. راجع كشف الحساب للرصيد الحالي.</p></body></html>`;
+/* V5.2.1: mobile/offline PDF writer. Never open a new window: Android standalone PWAs
+   can block popups and their print viewer. Render Arabic through browser canvas,
+   preview inside the app, then download a real multipage A4 PDF directly. */
+const V52_PDF_WIDTH=1080,V52_PDF_HEIGHT=1528;
+function v52PdfPage(heading,sub,page,count){
+  const canvas=document.createElement('canvas');canvas.width=V52_PDF_WIDTH;canvas.height=V52_PDF_HEIGHT;
+  const c=canvas.getContext('2d');if(!c)throw Error('الجهاز لا يدعم تجهيز المستندات');
+  c.fillStyle='#ffffff';c.fillRect(0,0,canvas.width,canvas.height);
+  c.fillStyle='#176b41';c.fillRect(0,0,canvas.width,12);
+  c.direction='rtl';c.textAlign='right';c.fillStyle='#176b41';
+  c.font='bold 64px Tahoma, Arial, sans-serif';c.fillText('سدرة',1010,104);
+  c.textAlign='left';c.fillStyle='#243a2c';c.font='bold 33px Tahoma, Arial, sans-serif';c.fillText(heading,65,99);
+  c.strokeStyle='#dae5dd';c.lineWidth=3;c.beginPath();c.moveTo(60,139);c.lineTo(1020,139);c.stroke();
+  c.direction='rtl';c.textAlign='right';c.fillStyle='#61766a';c.font='24px Tahoma, Arial, sans-serif';c.fillText(sub,1010,187,950);
+  c.fillStyle='#78877e';c.font='21px Tahoma, Arial, sans-serif';c.textAlign='center';c.fillText(`صفحة ${page} من ${count}`,540,1477);
+  return {canvas,c};
+}
+function v52PdfText(c,t,x,y,width=440,align='right',bold=false){
+  c.direction='rtl';c.textAlign=align;c.fillStyle='#26382d';
+  c.font=(bold?'bold ':'')+'25px Tahoma, Arial, sans-serif';c.fillText(String(t),x,y,width);
+}
+function v52PdfRule(c,y){c.strokeStyle='#dce5dd';c.lineWidth=2;c.beginPath();c.moveTo(60,y);c.lineTo(1020,y);c.stroke()}
+function v52InvoiceDocumentPages(inv,items){
+  const perPage=12,parts=Math.max(1,Math.ceil(items.length/perPage)),pages=[];
+  for(let page=0;page<parts;page++){
+    const {canvas,c}=v52PdfPage('فاتورة مبيعات آجل',String(inv.number),page+1,parts);
+    v52PdfText(c,'العميل: '+(inv.customerName||'غير محدد'),1010,252,750);
+    v52PdfText(c,'التاريخ: '+dateShow(inv.createdAt),1010,298,850);
+    v52PdfRule(c,329);
+    c.fillStyle='#e7f1e9';c.fillRect(60,349,960,61);
+    v52PdfText(c,'الصنف',1007,386,530,'right',true);
+    v52PdfText(c,'الكمية',455,386,200,'right',true);
+    v52PdfText(c,'القيمة (ج)',76,386,205,'left',true);
+    let y=463;
+    for(const it of items.slice(page*perPage,(page+1)*perPage)){
+      v52PdfText(c,it.productName,1007,y,520);
+      v52PdfText(c,displayQty({kind:it.kind,unit:it.unit},it.qtyBase),455,y,210);
+      v52PdfText(c,moneyRaw(it.totalC||0),76,y,175,'left');
+      v52PdfRule(c,y+17);y+=55;
+    }
+    if(page===parts-1){
+      const totals=[['إجمالي الفاتورة',inv.totalC||0],['المدفوع وقت البيع',inv.cashC||0],['الآجل وقت البيع',inv.creditC||0]];
+      let ty=Math.max(1166,y+70);
+      for(const [label,value] of totals){
+        v52PdfText(c,label,1007,ty,590,'right',true);
+        v52PdfText(c,moneyRaw(value)+' ج',75,ty,280,'left',true);ty+=55;
+      }
+    }
+    c.textAlign='center';c.direction='rtl';c.fillStyle='#6b786e';c.font='20px Tahoma, Arial, sans-serif';
+    c.fillText('المدفوعات والمرتجعات اللاحقة تظهر في كشف حساب العميل، لا تغيّر الفاتورة الأصلية.',540,1410,940);
+    pages.push(canvas);
+  }
+  return pages;
+}
+function v52StatementDocumentPages(customer,entries,balance){
+  const perPage=16,parts=Math.max(1,Math.ceil(entries.length/perPage)),pages=[];
+  for(let page=0;page<parts;page++){
+    const {canvas,c}=v52PdfPage('كشف حساب عميل',customer.name,page+1,parts);
+    v52PdfText(c,'العميل: '+customer.name,1010,252,850);
+    v52PdfText(c,'الرصيد الحالي: '+money(balance),1010,298,800,'right',true);
+    v52PdfRule(c,328);
+    c.fillStyle='#e7f1e9';c.fillRect(60,349,960,61);
+    v52PdfText(c,'التاريخ',1005,386,215,'right',true);
+    v52PdfText(c,'العملية / المرجع',730,386,430,'right',true);
+    v52PdfText(c,'حركة المديونية (ج)',75,386,250,'left',true);
+    let y=460;
+    for(const entry of entries.slice(page*perPage,(page+1)*perPage)){
+      v52PdfText(c,dateShow(entry.createdAt),1007,y,235);
+      const type=entry.type==='invoice_credit'?'فاتورة آجل':entry.type==='collection'?'سداد':entry.type==='return_credit'?'مرتجع':'حركة حساب';
+      v52PdfText(c,type+' · '+(entry.reference||''),736,y,405);
+      v52PdfText(c,moneyRaw(entry.amountC||0),75,y,260,'left');
+      v52PdfRule(c,y+15);y+=57;
+    }
+    if(page===parts-1){v52PdfText(c,'الرصيد المستحق الحالي: '+money(balance),1010,1390,880,'right',true)}
+    pages.push(canvas);
+  }
+  return pages;
+}
+function v52Bytes(t){return new TextEncoder().encode(t)}
+function v52Base64Bytes(data){const raw=atob(data.split(',')[1]),bytes=new Uint8Array(raw.length);for(let n=0;n<raw.length;n++)bytes[n]=raw.charCodeAt(n);return bytes}
+function v52BuildPdf(pages){
+  // Simple valid PDF 1.4: each A4 page embeds one JPEG rendered locally by canvas.
+  // Arabic remains visually correct without external fonts or network dependencies.
+  const blocks=[],offsets=[0];let length=0;
+  const write=data=>{const buf=typeof data==='string'?v52Bytes(data):data;blocks.push(buf);length+=buf.length};
+  const start=id=>{offsets[id]=length;write(id+' 0 obj\n')};
+  const end=()=>write('endobj\n');
+  write('%PDF-1.4\n');
+  start(1);write('<< /Type /Catalog /Pages 2 0 R >>\n');end();
+  start(2);write('<< /Type /Pages /Kids ['+pages.map((_,i)=>(3+i*3)+' 0 R').join(' ')+'] /Count '+pages.length+' >>\n');end();
+  for(let i=0;i<pages.length;i++){
+    const canvas=pages[i],pageId=3+i*3,contentsId=pageId+1,imageId=pageId+2;
+    start(pageId);write('<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595.28 841.89] /Resources << /XObject << /Im0 '+imageId+' 0 R >> >> /Contents '+contentsId+' 0 R >>\n');end();
+    const commands=v52Bytes('q\n595.28 0 0 841.89 0 0 cm\n/Im0 Do\nQ\n');
+    start(contentsId);write('<< /Length '+commands.length+' >>\nstream\n');write(commands);write('endstream\n');end();
+    const image=v52Base64Bytes(canvas.toDataURL('image/jpeg',0.90));
+    start(imageId);write('<< /Type /XObject /Subtype /Image /Width '+canvas.width+' /Height '+canvas.height+' /ColorSpace /DeviceRGB /BitsPerComponent 8 /Filter /DCTDecode /Length '+image.length+' >>\nstream\n');
+    write(image);write('\nendstream\n');end();
+  }
+  const xref=length,objectCount=3+pages.length*3;
+  write('xref\n0 '+objectCount+'\n0000000000 65535 f \n');
+  for(let id=1;id<objectCount;id++)write(String(offsets[id]).padStart(10,'0')+' 00000 n \n');
+  write('trailer\n<< /Size '+objectCount+' /Root 1 0 R >>\nstartxref\n'+xref+'\n%%EOF\n');
+  return new Blob(blocks,{type:'application/pdf'});
+}
+function v52CreatePrintPages(pages){
+  let root=document.getElementById('v52PrintDocument');
+  if(!root){
+    root=document.createElement('div');root.id='v52PrintDocument';document.body.appendChild(root);
+    const style=document.createElement('style');style.id='v52PrintCss';
+    style.textContent='#v52PrintDocument{display:none} @media print{@page{size:A4;margin:0}body>*:not(#v52PrintDocument){display:none!important}#v52PrintDocument{display:block!important}#v52PrintDocument img{display:block;width:210mm;height:297mm;object-fit:contain;break-after:page;page-break-after:always}#v52PrintDocument img:last-child{break-after:auto;page-break-after:auto}}';
+    document.head.appendChild(style);
+  }
+  root.innerHTML='';for(const page of pages){const img=document.createElement('img');img.alt='صفحة من المستند';img.src=page.toDataURL('image/jpeg',0.86);root.appendChild(img)}
+}
+function v52ShowDocPreview(title,fileName,pages,returnTo=null){
+  const pdf=v52BuildPdf(pages);const imgs=pages.map((canvas,i)=>'<img alt="صفحة '+(i+1)+'" src="'+canvas.toDataURL('image/jpeg',0.82)+'" style="display:block;width:100%;height:auto;margin:8px 0;border:1px solid #d1dbd5;background:white;border-radius:5px">').join('');
+  modal(title,'<p class="help">المعاينة داخل التطبيق. زر «حفظ PDF» ينزّل ملف PDF حقيقي مباشرة، من غير نوافذ جديدة أو طابعات.</p><div class="action-row spaced"><button class="btn primary" id="v52SavePdfDirect">⬇ حفظ PDF</button><button class="btn outline" id="v52PrintNative">🖨 طباعة</button></div>'+imgs+(returnTo?'<button class="btn secondary block spaced" id="v52BackInvoice">رجوع لتفاصيل الفاتورة</button>':''));
+  $('#v52SavePdfDirect').onclick=()=>{downloadBlob(fileName,pdf);toast('تم تجهيز ملف PDF للتنزيل')};
+  $('#v52PrintNative').onclick=()=>{v52CreatePrintPages(pages);try{window.print()}catch(e){toast('الطباعة غير مدعومة في وضع تطبيق أندرويد؛ استخدم حفظ PDF')}};
+  if(returnTo)$('#v52BackInvoice').onclick=()=>invoiceDetails(returnTo);
 }
 async function v52PrintCredit(id){
-  // Create popup immediately inside user click to prevent popup blocking.
-  const w=window.open('','_blank');if(!w){toast('السماح بفتح نافذة الطباعة مطلوب لحفظ PDF');return}
-  try{const inv=await one('invoices',id),items=(await all('items')).filter(x=>x.invoiceId===id);if(!inv)throw Error('الفاتورة غير موجودة');w.document.open();w.document.write(v52CreditHtml(inv,items));w.document.close()}catch(e){w.close();toast('تعذر تجهيز PDF: '+e.message)}
+  try{const [inv,allItems]=await Promise.all([one('invoices',id),all('items')]);if(!inv)throw Error('الفاتورة غير موجودة');
+    const pages=v52InvoiceDocumentPages(inv,allItems.filter(x=>x.invoiceId===id));
+    v52ShowDocPreview('معاينة فاتورة الآجل — PDF','Sedra_Credit_'+inv.number+'.pdf',pages,id);
+  }catch(e){console.error(e);toast('تعذر تجهيز PDF: '+e.message)}
 }
 async function v52PngInvoice(id){
   const inv=await one('invoices',id);if(!inv)return toast('الفاتورة غير موجودة');
@@ -359,8 +477,8 @@ const v52OldInvoiceDetails=invoiceDetails;
 invoiceDetails=async function(id){
   await v52OldInvoiceDetails(id);const inv=await one('invoices',id);if(!inv||!$('#sheetBody'))return;
   if(inv.creditC>0){
-    $('#sheetBody').insertAdjacentHTML('beforeend','<div class="action-row spaced"><button class="btn primary" id="v52CreditPng">🖼 صورة فاتورة الآجل</button><button class="btn outline" id="v52CreditPdf">📄 PDF / طباعة</button></div><p class="hint">PDF: من نافذة الطباعة اختر حفظ كملف PDF. الصورة تعمل دون إنترنت.</p>');
-    $('#v52CreditPng').onclick=()=>v52PngInvoice(id).catch(e=>toast(e.message));$('#v52CreditPdf').onclick=()=>v52PrintCredit(id);
+    $('#sheetBody').insertAdjacentHTML('beforeend','<div class="action-row spaced"><button class="btn primary" id="v52CreditPng">🖼 صورة فاتورة الآجل</button><button class="btn outline" id="v52CreditPdf">📄 معاينة وحفظ PDF</button></div><p class="hint">المعاينة داخل التطبيق، والحفظ PDF يعمل دون نوافذ منبثقة أو إنترنت.</p>');
+    $('#v52CreditPng').onclick=()=>v52PngInvoice(id);$('#v52CreditPdf').onclick=()=>v52PrintCredit(id);
   }
 };
 const v52OldCustomerDetail=renderCustomerDetail;
@@ -369,13 +487,10 @@ renderCustomerDetail=async function(cid){
   const btn=document.createElement('button');btn.className='btn small outline spaced';btn.textContent='📄 كشف حساب العميل PDF';btn.onclick=()=>v52PrintStatement(cid);el.insertBefore(btn,el.firstChild.nextSibling);
 };
 async function v52PrintStatement(cid){
-  const w=window.open('','_blank');if(!w)return toast('اسمح بفتح نافذة طباعة كشف الحساب');
-  try{
-    const [customer,ledger]=await Promise.all([one('customers',cid),ledgerFor(cid)]);if(!customer)throw Error('العميل غير موجود');
-    const balance=balanceC(ledger);const rows=ledger.slice().sort((a,b)=>a.createdAt.localeCompare(b.createdAt)).map(x=>`<tr><td>${esc(dateShow(x.createdAt))}</td><td>${esc(x.type==='invoice_credit'?'فاتورة آجل':x.type==='collection'?'تحصيل':'مرتجع')}</td><td>${esc(x.reference||'')}</td><td>${money(x.amountC)}</td></tr>`).join('');
-    const page=`<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><title>كشف حساب ${esc(customer.name)}</title><style>body{font-family:Tahoma,Arial,sans-serif;color:#213629;padding:25px}h1,h2{text-align:center;color:#14653a}table{border-collapse:collapse;width:100%}td,th{border-bottom:1px solid #ddd;text-align:right;padding:9px}.toolbar{background:#def3e4;padding:10px;text-align:center}@media print{.toolbar{display:none}@page{size:A4;margin:15mm}}</style></head><body><div class="toolbar"><button onclick="window.print()">طباعة / حفظ PDF</button></div><h1>سدرة</h1><h2>كشف حساب ${esc(customer.name)}</h2><h3>الرصيد الحالي: ${money(balance)}</h3><table><tr><th>التاريخ</th><th>العملية</th><th>المرجع</th><th>زيادة/نقص المديونية</th></tr>${rows}</table></body></html>`;
-    w.document.open();w.document.write(page);w.document.close();
-  }catch(e){w.close();toast('تعذر إنشاء كشف الحساب: '+e.message)}
+  try{const [customer,ledger]=await Promise.all([one('customers',cid),ledgerFor(cid)]);if(!customer)throw Error('العميل غير موجود');
+    const balance=balanceC(ledger),entries=ledger.slice().sort((a,b)=>(a.createdAt||'').localeCompare(b.createdAt||''));
+    v52ShowDocPreview('معاينة كشف حساب — PDF','Sedra_Statement_'+customer.name.replace(/[\\/:*?"<>|]/g,'_')+'.pdf',v52StatementDocumentPages(customer,entries,balance));
+  }catch(e){console.error(e);toast('تعذر تجهيز كشف الحساب: '+e.message)}
 }
 
 /* Android PWA back button guard; browser/system can still force-close the app. */
