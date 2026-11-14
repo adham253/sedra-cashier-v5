@@ -1,6 +1,6 @@
 'use strict';
 /* Sedra V5.2: non-destructive, offline-safe feature upgrade. No user data is embedded here. */
-const V52_BUILD='2026.11.11.4';
+const V52_BUILD='2026.11.14.1';
 const V52_MIN_BULK_G=125;
 const v52GrossLine=it=>Number.isFinite(it?.totalC)?it.totalC:0;
 const v52KnownCost=it=>it&&it.costMissing!==true&&it.costEstimated!==true&&Number.isFinite(it.costTotalC)&&(it.costMissing===false||it.costTotalC>0);
@@ -75,10 +75,10 @@ renderInvoices=async function(){
     `<div class="stat"><small>عدد الفواتير</small><b>${list.length}</b></div>`+
     v52MoneyTiles('مرتجعات الفترة',stat.returns.reduce((n,r)=>n+r.amountC,0))+
     (stat.unknown||stat.missingAmount||stat.unmatchedReturn?`<div class="summary-warn v52-full">⚠ توجد ${stat.unknown} سطور بدون تكلفة شراء تاريخية؛ مساهمتها في المكسب النظري = صفر (تكلفة حسابية مؤقتة تساوي صافي بيعها). لا يمكن اعتبار إجمالي المكسب ربحًا نهائيًا.${stat.unmatchedReturn?' ويوجد مرتجع يحتاج مراجعة.':''}</div>`:'');
-  const full=await Promise.all(['invoices','returns'].map(all));
-  const allDates=new Set([...full[0],...full[1],...cash].filter(x=>inPeriod(x.dateKey)).map(x=>x.dateKey));
+  const full=await Promise.all(['invoices','returns','audit'].map(all));
+  const allDates=new Set([...full[0],...full[1],...cash,...full[2].filter(x=>x.action==='invoice_item_corrected')].filter(x=>inPeriod(x.dateKey)).map(x=>x.dateKey));
   if(filter==='date'||filter==='yesterday'||filter==='today')allDates.add(filter==='date'?from:filter==='yesterday'?v52DateAdd(day(),-1):day());
-  const byDay=[...allDates].sort().reverse().map(d=>v52SummaryForDate(d,{invoices:full[0],returns:full[1],cash}));
+  const byDay=[...allDates].sort().reverse().map(d=>v52SummaryForDate(d,{invoices:full[0],returns:full[1],cash,corrections:full[2]}));
   $('#v52Daily').innerHTML=byDay.length?`<h3>مراجعة المبيعات يوم بيوم</h3><div class="v52-scroll"><table class="item-table v52-table"><thead><tr><th>اليوم</th><th>الفواتير</th><th>صافي المبيعات</th><th>مبيعات الآجل</th><th>تحصيل آجل</th><th>حركة الخزنة</th><th>Excel</th></tr></thead><tbody>${byDay.map(r=>`<tr><td>${esc(r.dateKey)}</td><td>${r.count}</td><td>${money(r.netSalesC)}</td><td>${money(r.saleCreditC)}</td><td>${money(r.collectionsC)}</td><td>${money(r.netCashC)}</td><td><button class="btn small outline" data-export-history="${esc(r.dateKey)}">تنزيل</button></td></tr>`).join('')}</tbody></table></div>`:'<p class="hint">لا توجد مبيعات أو مرتجعات في الفترة المختارة.</p>';
   $$('#v52Daily [data-export-history]').forEach(b=>b.onclick=()=>v52DownloadDay(b.dataset.exportHistory));
   $('#invoiceList').innerHTML=list.length?list.map(i=>`<div class="list-card tap" data-invoice="${esc(i.id)}"><div class="card-top"><strong>${esc(i.number)}</strong><b>${money(i.totalC)}</b></div><div class="card-meta">${dateShow(i.createdAt)} · كاش ${money(i.cashC||0)}${i.creditC?' · آجل '+money(i.creditC):''} ${i.customerName?' · '+esc(i.customerName):''}${i.discountC?' · خصم '+money(i.discountC):''}${i.returnC?' · مرتجع '+money(i.returnC):''}</div></div>`).join(''):'<div class="blank">لا توجد فواتير في الفترة. المرتجعات قد تظهر في الملخص اليومي.</div>';
@@ -97,12 +97,13 @@ exportDaily=async function(dk,closing=null){
   if(!v52ValidDate(dk))throw Error('تاريخ تقرير غير صحيح');
   const [d,stats,products,purchases,payables,stock,history,customersList,allItems,allReturns]=await Promise.all([
     daily(dk),v52SalesStats('date',dk,dk),all('products'),all('purchases'),all('payables'),all('stock'),all('historical'),all('customers'),all('items'),all('returns')]);
+  const corrections=(await all('audit')).filter(x=>x.action==='invoice_item_corrected'&&x.dateKey===dk);
   const s=daySummary(d),finance=await currentFinance(),name=new Map(products.map(p=>[p.id,p.name])),cust=new Map(customersList.map(c=>[c.id,c.name]));
   const rawItems=allItems.filter(x=>x.dateKey===dk),purs=purchases.filter(x=>x.dateKey===dk),rets=allReturns.filter(x=>x.dateKey===dk);
   const retByItem=new Map();for(const r of rets)retByItem.set(r.itemId,(retByItem.get(r.itemId)||0)+r.amountC);
   const totalRevenue=stats.netSalesC;
   const summary=[['كاشير سدرة V5.2 — تقرير يومية',dk],['حالة اليوم',closing?'مغلق':'مؤقت'],['عدد الفواتير',s.count],
-    ['قيمة مبيعات الفواتير',v52ExcelMoney(s.invTotal)],['المرتجعات بتاريخ اليوم',v52ExcelMoney(s.returns)],['صافي المبيعات (كاش + آجل)',v52ExcelMoney(totalRevenue)],
+    ['قيمة مبيعات الفواتير',v52ExcelMoney(s.invTotal)],['المرتجعات بتاريخ اليوم',v52ExcelMoney(s.returns)],['صافي المبيعات (كاش + آجل)',v52ExcelMoney(totalRevenue)],['تصحيحات البنود المؤرخة اليوم',v52ExcelMoney(stats.correctionsC||0)],
     ['مبيعات كاش وقت البيع',v52ExcelMoney(s.saleCash)],['مبيعات آجل وقت البيع',v52ExcelMoney(s.saleCredit)],['تحصيل آجل اليوم',v52ExcelMoney(s.col)],
     ['صافي حركة الكاش (يشمل الوارد والمصروف)',v52ExcelMoney(s.netCash)],['المكسب النظري المحسوب — ليس ربحًا نهائيًا',v52ExcelMoney(stats.profitC)],
     ['عدد السطور بدون تكلفة تاريخية',stats.unknown],['قيمة بيع سطور مجهولة التكلفة',v52ExcelMoney(stats.provisionalCostC)],
@@ -111,7 +112,7 @@ exportDaily=async function(dk,closing=null){
     ['مديونية الموردين الآن',v52ExcelMoney(finance.supplierDebt)],['قيمة مخزون مؤكدة جزئيًا',v52ExcelMoney(finance.stockCostC)],
     ['تقدير بديل لجزء المخزون المجهول بسعر بيعه',v52ExcelMoney(finance.stockCostEstimateC-finance.stockCostC)]];
   const invoices=[['رقم الفاتورة','التاريخ','صافي البيع','قبل الخصم','الخصم','سبب الخصم','كاش','آجل','مرتجع'],...d.invoices.map(x=>[x.number,x.createdAt,v52ExcelMoney(x.totalC),v52ExcelMoney(x.grossC??x.totalC),v52ExcelMoney(x.discountC||0),x.discountReason||'',v52ExcelMoney(x.cashC||0),v52ExcelMoney(x.creditC||0),v52ExcelMoney(x.returnC||0)])];
-  const items=[['الفاتورة','الصنف','الكمية الأساسية','الوحدة','نوع بيع الوزن','السعر للوحدة','إجمالي السطر بعد الخصم','تكلفة تاريخية مؤكدة','التكلفة الحسابية للأرباح','تكلفة مفقودة','مرتجع اليوم','سبب تعديل السعر'],...rawItems.map(x=>[x.number,x.productName,x.qtyBase,x.kind==='weight'?'جرام':x.unit||'قطعة',x.kind==='weight'?(x.saleTier==='bulk'?'بيع كميات':x.saleTier==='regular'?'بيع عادي':'غير مصنف (قديم)'):'بالعدد',v52ExcelMoney(x.priceC||0),v52ExcelMoney(x.totalC||0),v52KnownCost(x)?v52ExcelMoney(x.costTotalC):'غير معروفة',v52ExcelMoney(v52ItemCost(x)),v52KnownCost(x)?'لا':'نعم',v52ExcelMoney(retByItem.get(x.id)||0),x.priceReason||''])];
+  const items=[['الفاتورة','الصنف','الكمية الأساسية','الوحدة','نوع بيع الوزن','السعر للوحدة','إجمالي السطر بعد الخصم','تكلفة تاريخية مؤكدة','التكلفة الحسابية للأرباح','تكلفة مفقودة','مرتجع اليوم','سبب تعديل السعر','حالة البند'],...rawItems.map(x=>[x.number,x.productName,x.qtyBase,x.kind==='weight'?'جرام':x.unit||'قطعة',x.kind==='weight'?(x.saleTier==='bulk'?'بيع كميات':x.saleTier==='regular'?'بيع عادي':'غير مصنف (قديم)'):'بالعدد',v52ExcelMoney(x.priceC||0),v52ExcelMoney(x.totalC||0),v52KnownCost(x)?v52ExcelMoney(x.costTotalC):'غير معروفة',v52ExcelMoney(v52ItemCost(x)),v52KnownCost(x)?'لا':'نعم',v52ExcelMoney(retByItem.get(x.id)||0),x.priceReason||'',x.correctionVoided?'مصحح ومخفى من نسخة العميل':'نشط'])];
   const totals=new Map();
   for(const it of allItems){if(it.dateKey!==dk)continue;const group=totals.get(it.productId)||{name:it.productName,kind:it.kind,regularQty:0,regularC:0,bulkQty:0,bulkC:0,legacyQty:0,legacyC:0};const bulk=it.kind==='weight'&&it.saleTier==='bulk';
     if(bulk){group.bulkQty+=it.qtyBase;group.bulkC+=it.totalC}else if(it.kind==='weight'&&it.saleTier!=='regular'){group.legacyQty+=it.qtyBase;group.legacyC+=it.totalC}else{group.regularQty+=it.qtyBase;group.regularC+=it.totalC}totals.set(it.productId,group)}
@@ -128,8 +129,9 @@ exportDaily=async function(dk,closing=null){
   const cash=[['التاريخ','نوع الحركة','المرجع','داخل/خارج'],...d.cash.map(x=>[x.createdAt,x.type,x.reference,v52ExcelMoney(x.amountC)])];
   const stockSheet=[['التاريخ','الصنف','نوع الحركة','الكمية الأساسية (+/-)','المرجع'],...stock.filter(x=>x.dateKey===dk).map(x=>[x.createdAt,name.get(x.productId)||x.productId,x.type,x.qtyBase,x.reference])];
   const ledger=[['التاريخ','العميل','نوع الحركة','تغير المديونية'],...d.ledger.map(x=>[x.createdAt,cust.get(x.customerId)||x.customerId,x.type,v52ExcelMoney(x.amountC)])];
+  const correctionRows=[['تاريخ التصحيح','رقم الفاتورة','الصنف / معرّف البند','قيمة البند الأصلي','مرتجع سبق تسجيله','تعديل صافي المبيعات','تصحيح تكلفة البيع','كمية عادت للمخزون','السبب'],...corrections.map(x=>[x.createdAt,x.reference,x.itemId,v52ExcelMoney(x.itemTotalC||0),v52ExcelMoney(x.returnedBeforeC||0),v52ExcelMoney(x.netSaleAdjustmentC||0),v52ExcelMoney(x.costAdjustmentC||0),x.restoredQtyBase||0,x.reason||''])];
   const old=[['التاريخ','القيمة','النوع','التفاصيل','الحالة'],...history.filter(x=>x.dateKey===dk).map(x=>[x.dateKey,v52ExcelMoney(x.amountC),x.type,x.note,x.status||'active'])];
-  downloadBlob(`Sedra_V52_Daily_${dk}.xlsx`,makeXlsx([{name:'الملخص',rows:summary},{name:'فواتير البيع',rows:invoices},{name:'ملخص بيع الأصناف',rows:productRows},{name:'سطور البيع',rows:items},{name:'المرتجعات',rows:retReport},{name:'فواتير الوارد',rows:income},{name:'ديون الموردين',rows:suppliers},{name:'الخزنة والمصروفات',rows:cash},{name:'حركة المخزون',rows:stockSheet},{name:'مديونيات العملاء',rows:ledger},{name:'مبيعات قديمة',rows:old}]));
+  downloadBlob(`Sedra_V52_Daily_${dk}.xlsx`,makeXlsx([{name:'الملخص',rows:summary},{name:'فواتير البيع',rows:invoices},{name:'ملخص بيع الأصناف',rows:productRows},{name:'سطور البيع',rows:items},{name:'المرتجعات',rows:retReport},{name:'تصحيحات الآجل',rows:correctionRows},{name:'فواتير الوارد',rows:income},{name:'ديون الموردين',rows:suppliers},{name:'الخزنة والمصروفات',rows:cash},{name:'حركة المخزون',rows:stockSheet},{name:'مديونيات العملاء',rows:ledger},{name:'مبيعات قديمة',rows:old}]));
   return true;
 };
 async function v52DownloadDay(dk){try{await exportDaily(dk,await one('closings',dk));toast('تم تجهيز تقرير '+dk)}catch(e){console.error(e);toast('تعذر إنشاء Excel: '+e.message)}}
@@ -387,7 +389,7 @@ function v52StatementDocumentPages(customer,entries,balance){
     let y=460;
     for(const entry of entries.slice(page*perPage,(page+1)*perPage)){
       v52PdfText(c,dateShow(entry.createdAt),1007,y,235);
-      const type=entry.type==='invoice_credit'?'فاتورة آجل':entry.type==='collection'?'سداد':entry.type==='return_credit'?'مرتجع':'حركة حساب';
+      const type=entry.type==='invoice_credit'?'فاتورة آجل':entry.type==='collection'?'سداد':entry.type==='return_credit'?'مرتجع':entry.type==='cash_advance'?'سحب نقدي':'حركة حساب';
       v52PdfText(c,type+' · '+(entry.reference||''),736,y,405);
       v52PdfText(c,moneyRaw(entry.amountC||0),75,y,260,'left');
       v52PdfRule(c,y+15);y+=57;
